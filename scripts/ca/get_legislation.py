@@ -14,8 +14,6 @@ class CALegislationScraper(LegislationScraper):
     state = 'ca'
 
     def get_bill_info(self, chamber, session, bill_id):
-        print 'Getting %s %s' % (session, bill_id)
-
         detail_url = 'http://www.leginfo.ca.gov/cgi-bin/postquery?bill_number=%s_%s&sess=%s' % (bill_id[:2].lower(), bill_id[2:], session.replace('-', ''))
 
         # Get the details page and parse it with BeautifulSoup. These
@@ -61,7 +59,7 @@ class CALegislationScraper(LegislationScraper):
                                   version_name, version_url)
 
         # Get bill actions
-        action_re = re.compile('(\d{4})|([\w.]{4,6}\s+\d{1,2})\s+(.*(\n\s+.*){0,})', re.MULTILINE)
+        action_re = re.compile('^(\d{4})|^([\w.]{4,6}\s+\d{1,2})\s+(.*(\n\s+.*){0,})', re.MULTILINE)
         act_year = None
         for act_match in action_re.finditer(history.find('pre').contents[0]):
             # If we didn't match group 2 then this must be a year change
@@ -73,7 +71,7 @@ class CALegislationScraper(LegislationScraper):
             act_date = act_match.group(2)
             action = act_match.group(3).replace('\n', '').replace('  ', ' ').replace('\t', ' ')
             self.add_action(chamber, session, bill_id, chamber,
-                            action, act_date)
+                            action, "%s, %s" % (act_date, act_year))
 
     def scrape_session(self, chamber, session):
         if chamber == 'upper':
@@ -86,7 +84,7 @@ class CALegislationScraper(LegislationScraper):
         # Get the list of all chamber bills for the given session
         # (text format, sorted by author)
         url = "http://www.leginfo.ca.gov/pub/%s/bill/index_%s_author_bill_topic" % (session, chamber_name)
-        print "Getting: %s" % url
+        self.be_verbose("Getting bill list for %s %s" % (chamber, session))
         bill_list = urllib2.urlopen(url).read()
         bill_re = re.compile('\s+(%s\s+\d+)(.*(\n\s{31}.*){0,})' % bill_abbr,
                              re.MULTILINE)

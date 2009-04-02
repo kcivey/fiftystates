@@ -29,6 +29,7 @@ class SDLegislationScraper(LegislationScraper):
         # Get bill list page
         session_url = 'http://legis.state.sd.us/sessions/%s/' % year
         bill_list_url = session_url + 'BillList.aspx'
+        self.be_verbose('Getting bill list for %s %s' % (chamber, year))
         bill_list = BeautifulSoup(urllib2.urlopen(bill_list_url).read())
 
         # Format of bill link contents
@@ -48,21 +49,24 @@ class SDLegislationScraper(LegislationScraper):
             # Parse bill ID and name
             bill_id = bill_link.string.replace('&nbsp;', ' ')
             bill_name = bill_link.findNext().string
-            print "Getting %s: %s" % (bill_id, bill_name)
 
             # Download history page
             hist_url = session_url + bill_link['href']
             history = BeautifulSoup(urllib2.urlopen(hist_url).read())
 
-            # The version table contains links to all available bill texts
-            # Should be sorted by date, so we grab the first one
-            version_table = history.find(id='ctl00_contentMain_ctl00_tblBillVersions')
-            bill_url = session_url + version_table.find('a')['href']
-
             # Add bill
             self.add_bill(chamber, year, bill_id, bill_name)
-            self.add_bill_version(chamber, year, bill_id, 'latest',
-                                  bill_url)
+
+            # Get all bill versions
+            text_table = history.findAll('table')[1]
+            for row in text_table.findAll('tr')[2:]:
+                version_date = row.find('td').string
+                version_url = row.findAll('td')[1].a['href']
+                version_name = row.findAll('td')[1].a.string.strip()
+                self.add_bill_version(chamber, year, bill_id,
+                                      version_name,
+                                      "http://legis.state.sd.us/sessions/%s/%s"
+                                      % (year, version_url))
 
             # Get actions
             act_table = history.find('table')
@@ -103,7 +107,7 @@ class SDLegislationScraper(LegislationScraper):
         # BeautifulSoup choke on)
         session_url = 'http://legis.state.sd.us/sessions/%s/' % year
         bill_list_url = session_url + 'billlist.htm'
-        print bill_list_url
+        self.be_verbose("Getting bill list for %s %s" % (chamber, year))
         bill_list_raw = urllib2.urlopen(bill_list_url).read()
         bill_list_raw = bill_list_raw.replace('BORDER= ', '').replace('"</A>', '"></A>')
         bill_list = BeautifulSoup(bill_list_raw)
@@ -126,7 +130,6 @@ class SDLegislationScraper(LegislationScraper):
             # Get the bill ID and name
             bill_id = bill_link.string
             bill_name = bill_link.findNext().string
-            print "Getting %s: %s" % (bill_id, bill_name)
 
             # Get history page (replacing malformed tag)
             hist_url = session_url + bill_link['href']
@@ -140,8 +143,16 @@ class SDLegislationScraper(LegislationScraper):
 
             # Add bill
             self.add_bill(chamber, year, bill_id, bill_name)
-            self.add_bill_version(chamber, year, bill_id, 'latest',
-                                  bill_url)
+
+            # Get bill versions
+            text_table = history.findAll('table')[1]
+            for row in text_table.findAll('tr')[2:]:
+                version_date = row.find('td').string
+                version_url = row.findAll('td')[1].a['href']
+                version_name = row.findAll('td')[1].a.string.strip()
+                self.add_bill_version(chamber, year, bill_id,
+                                      version_name,
+                                      "http://legis.state.sd.us" + version_url)
 
             # Get actions
             act_table = history.find('table')

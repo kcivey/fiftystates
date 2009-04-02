@@ -31,7 +31,7 @@ class FLLegislationScraper(LegislationScraper):
         # Go through all sorted bill list pages
         for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
             bill_list_url = base_url % (letter, session, chamber_name)
-            print bill_list_url
+            self.be_verbose("Getting bill list for %s %s, section %s" % (chamber, year, letter))
             bill_list = BeautifulSoup(urllib2.urlopen(bill_list_url).read())
             
             # Bill ID's are bold
@@ -45,22 +45,63 @@ class FLLegislationScraper(LegislationScraper):
                     bill_id = match.group(0)
                     bill_number = match.group(1)
 
-                    # Get bill name
-                    bill_name = b.parent.findNext('td').find('a').string.strip()
-                    print "Getting %s: %s" % (bill_id, bill_name)
+                    # Get bill name and info url
+                    bill_link = b.parent.findNext('td').a
+                    bill_name = bill_link.string.strip()
+                    info_url = "http://www.flsenate.gov/Session/%s&Year=%s" % (bill_link['href'], year)
 
-                    # Generate bill text url
-                    if chamber == 'upper':
-                        bill_file = "sb%s.html" % bill_number
-                    else:
-                        # House bills have two extra 0's at end
-                        bill_file = "hb%s00.html" % bill_number
-
-                    bill_url = 'http://www.flsenate.gov/cgi-bin/view_page.pl?File=%s&Directory=session/%s/%s/bills/billtext/html/' % (bill_file, session, chamber_name)
-
+                    # Add bill
                     self.add_bill(chamber, session, bill_id, bill_name)
-                    self.add_bill_version(chamber, session, bill_id,
-                                          'latest', bill_url)
+
+                    # Get bill info page
+                    info_page = BeautifulSoup(urllib2.urlopen(info_url).read())
+
+                    # Get all bill versions
+                    bill_table = info_page.find('a', attrs={'name':'BillText'}).parent.parent.findNext('tr').td.table
+                    if bill_table:
+                        for tr in bill_table.findAll('tr')[1:]:
+                            version_name = tr.td.string
+                            version_url = "http://www.flsenate.gov%s" % tr.a['href']
+                            self.add_bill_version(chamber, session, bill_id,
+                                                  version_name, version_url)
+
+                    # Get actions
+                    hist_table = info_page.find('pre', "billhistory")
+                    hist = ""
+                    for line in hist_table.findAll(text=True):
+                        hist += line + "\n"
+                    hist = hist.replace('&nbsp;', ' ')
+                    act_re = re.compile('^  (\d\d/\d\d/\d\d) (SENATE|HOUSE) (.*\n(\s{16,16}.*\n){0,})', re.MULTILINE)
+                    for act_match in act_re.finditer(hist):
+                        action = act_match.group(3).replace('\n', ' ')
+                        action = re.sub('\s+', ' ', action)
+                        if act_match.group(2) == 'SENATE':
+                            act_chamber = 'upper'
+                        else:
+                            act_chamber = 'lower'
+                        self.add_action(chamber, session, bill_id,
+                                        act_chamber, action,
+                                        act_match.group(1))
+
+
+                    # Get primary sponsor
+                    # Right now we just list the committee as the primary sponsor
+                    # for committee substituts. In the future, consider listing
+                    # committee separately and listing the original human
+                    # sponsors as primary
+                    spon_re = re.compile('by ([^;(\n]+;?|\w+)')
+                    sponsor = spon_re.search(hist).group(1).strip(';')
+                    self.add_sponsorship(chamber, session, bill_id,
+                                              'primary', sponsor)
+
+                    # Get co-sponsors
+                    cospon_re = re.compile('\((CO-SPONSORS|CO-AUTHORS)\) ([\w .]+(;[\w .\n]+){0,})', re.MULTILINE)
+                    cospon_match = cospon_re.search(hist)
+                    if cospon_match:
+                        for cosponsor in cospon_match.group(2).split(';'):
+                            cosponsor = cosponsor.replace('\n', '').strip()
+                            self.add_sponsorship(chamber, session, bill_id,
+                                                 'cosponsor', cosponsor)
 
     def scrape_bills(self, chamber, year):
         # Data available for 1998 on

@@ -28,7 +28,7 @@ class PALegislationScraper(LegislationScraper):
 
         # Get the bill list
         bill_list_url = 'http://www.legis.state.pa.us/cfdocs/legis/bi/BillIndx.cfm?sYear=%s&sIndex=%i&bod=%s' % (y1, session_num, bill_abbr)
-        print bill_list_url
+        self.be_verbose("Getting bill list for %s %s" % (chamber, year))
         bill_list = BeautifulSoup(urllib2.urlopen(bill_list_url).read())
 
         # Get all bill links
@@ -38,7 +38,6 @@ class PALegislationScraper(LegislationScraper):
         for link in links:
             bill_number = link.contents[0]
             bill_id = bill_abbr + 'B' + bill_number
-            print "Getting %s" % bill_id
 
             # Get info page
             info_url = 'http://www.legis.state.pa.us/cfdocs/billinfo/billinfo.cfm?syear=%s&sind=%i&body=%s&type=B&BN=%s' % (y1, session_num, bill_abbr, bill_number)
@@ -58,7 +57,7 @@ class PALegislationScraper(LegislationScraper):
                 text_link = tr.td.a
                 text_url = 'http://www.legis.state.pa.us%s' % text_link['href']
                 self.add_bill_version(chamber, session, bill_id,
-                                      text_link.string, text_url)
+                                      text_link.string.strip(), text_url)
 
             # Get bill history page
             history_url = 'http://www.legis.state.pa.us/cfdocs/billinfo/bill_history.cfm?syear=%s&sind=%i&body=%s&type=B&BN=%s' % (y1, session_num, bill_abbr, bill_number)

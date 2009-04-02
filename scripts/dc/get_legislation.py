@@ -1,52 +1,103 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
-# DC legislation scraper by Keith Ivey <keith@iveys.org>, based on
-# scrapers for states by Jame Turk and Rebecca Shapiro, 2009-03-07
-
-# I'm not sure what the best way to handle the chamber is for DC, 
-# since the council is unicameral.  The same issue will arise for
-# Nebraska.  I treated DC as having an upper chamber but no lower.
-#
-# Also, scraping by year could lead to redundancy, since DC and lots
-# of states have 2-year legislative sessions.  For example, with the
-# DC scraper, year 2007 and year 2008 produce the same data because
-# they're both council session 17.
-
+import urllib
+from BeautifulSoup import BeautifulSoup
+import datetime
 import re
-import urllib2
-import datetime as dt
 
 # ugly hack
 import sys
-sys.path.append('.')
-from pyutils.legislation import run_legislation_scraper
+sys.path.append('./scripts')
+from pyutils.legislation import LegislationScraper, NoDataForYear
 
-def scrape_legislation(chamber,year):
-    assert chamber == 'upper', "DC council is unicameral"   
+def clean_legislators(s):
+    s = s.replace('&nbsp;', ' ').strip()
+    return [l.strip() for l in s.split(';') if l]
 
-    assert int(year) >= 1999, "no data available before 1999"
-    assert int(year) <= dt.date.today().year, "can't look into the future"
+class DCLegislationScraper(LegislationScraper):
 
-    session = session_number(int(year))
+    state = 'dc'
 
-    index_url ='http://dccouncil.us/lims/print/' + \
-        'list.aspx?FullPage=True&Period=%s' % session
-    req = urllib2.Request(index_url)
-    response = urllib2.urlopen(req)
-    doc = response.read()
-    
-    re_str = '>([A-Z]{1,3}\d\d-\d{4})</td>'
+    def get_bill_info(self, session, bill_id):
+        bill_detail_url = 'http://www.ncga.state.nc.us/gascripts/BillLookUp/BillLookUp.pl?Session=%s&BillID=%s' % (session, bill_id)
 
-    for m in re.finditer(re_str, doc):
-        bill_id = m.group(1)
-        bill_url = 'http://dccouncil.us/lims/legislation.aspx?LegNo=%s' % \
-            bill_id
-        yield {'state':'DC','chamber':chamber,'session':session,
-               'bill_id':bill_id,'remote_url':bill_url}
+        # parse the bill data page, finding the latest html text
+        if bill_id[0] == 'H':
+            chamber = 'lower'
+        else:
+            chamber = 'upper'
 
-# Calculates the session number given the year
-def session_number(year):
-    return int( ( year - 1973 ) / 2 )
+        bill_data = urllib.urlopen(bill_detail_url).read()
+        bill_soup = BeautifulSoup(bill_data)
+
+        bill_title = bill_soup.findAll('div', style="text-align: center; font: bold 20px Arial; margin-top: 15px; margin-bottom: 8px;")[0].contents[0]
+
+        self.add_bill(chamber, session, bill_id, bill_title)
+
+        # get all versions
+        links = bill_soup.findAll('a')
+        for link in links:
+            if link.has_key('href') and link['href'].startswith('/Sessions') and link['href'].endswith('.html'):
+                version_name = link.parent.previousSibling.previousSibling.contents[0].replace('&nbsp;', ' ')
+                version_url = 'http://www.ncga.state.nc.us' + link['href']
+                self.add_bill_version(chamber, session, bill_id, version_name, version_url)
+
+        # grab primary and cosponsors from table[6]
+        tables = bill_soup.findAll('table')
+        sponsor_rows = tables[6].findAll('tr')
+        sponsors = clean_legislators(sponsor_rows[1].td.contents[0])
+        for leg in sponsors:
+            self.add_sponsorship(chamber, session, bill_id, 'primary', leg)
+        cosponsors = clean_legislators(sponsor_rows[2].td.contents[0])
+        for leg in cosponsors:
+            self.add_sponsorship(chamber, session, bill_id, 'cosponsor', leg)
+
+        # easier to read actions from the rss.. but perhaps favor less HTTP requests?
+        rss_url = 'http://www.ncga.state.nc.us/gascripts/BillLookUp/BillLookUp.pl?Session=%s&BillID=%s&view=history_rss' % (session, bill_id)
+        rss_data = urllib.urlopen(rss_url).read()
+        rss_soup = BeautifulSoup(rss_data)
+        # title looks like 'House Chamber: action'
+        for item in rss_soup.findAll('item'):
+            action = item.title.contents[0]
+            pieces = item.title.contents[0].split(' Chamber: ')
+            if len(pieces) == 2:
+                action_chamber = pieces[0]
+                action = pieces[1]
+            else:
+                action_chamber = None
+                action = pieces[0]
+            date = item.pubdate.contents[0]
+            self.add_action(chamber, session, bill_id, action_chamber, action, date)
+
+    def scrape_session(self, chamber, session):
+
+        url = 'http://dccouncil.us/lims/print/' + \
+            'list.aspx?FullPage=True&Period=%d' % session
+
+        self.be_verbose("Downloading %s" % url)
+        data = urllib.urlopen(url).read()
+        soup = BeautifulSoup(data)
+
+        rows = soup.find(id='DataGrid').findAll('tr')[1:]
+        for row in rows:
+            cells = row.findAll('td')
+            bill_id = cells[0].contents[0]
+            bill_title = cells[1].contents[0]
+            bill_title = bill_title.replace(u'\u2019', "'")
+            bill_title = bill_title.replace('&quot;', '"')
+            bill_title = bill_title.replace('&amp;', '&')
+            bill_title = re.sub(r'^"(.*)"\.?\s*$', r'\1', bill_title)
+            bill_title = re.sub(r'\s+', ' ', bill_title)
+            self.add_bill(chamber, session, bill_id, bill_title)
+
+    def scrape_bills(self, chamber, year):
+
+        if int(year) < 1999 or int(year) > datetime.date.today().year or \
+            int(year) % 2 == 0:
+                raise NoDataForYear(year)
+
+        session = (int(year) - 1973) / 2
+        self.scrape_session(chamber, session)
 
 if __name__ == '__main__':
-    run_legislation_scraper(scrape_legislation)
+    DCLegislationScraper().run()

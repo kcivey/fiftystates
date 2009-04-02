@@ -1,5 +1,12 @@
 #!/usr/bin/env python
 
+# DC legislation scraper by Keith Ivey <keith@iveys.org>, based on
+# scraper for NC by Jame Turk, 2009-04-01
+#
+# I'm not sure what the best way to handle the chamber is for DC, 
+# since the council is unicameral.  The same issue will arise for
+# Nebraska.  I treated DC as having an upper chamber but no lower.
+
 import urllib
 from BeautifulSoup import BeautifulStoneSoup
 import datetime

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import urllib
-from BeautifulSoup import BeautifulSoup
+from BeautifulSoup import BeautifulStoneSoup
 import datetime
 import re
 
@@ -76,7 +76,8 @@ class DCLegislationScraper(LegislationScraper):
 
         self.be_verbose("Downloading %s" % url)
         data = urllib.urlopen(url).read()
-        soup = BeautifulSoup(data)
+        soup = BeautifulStoneSoup(data,
+            convertEntities=BeautifulStoneSoup.HTML_ENTITIES)
 
         rows = soup.find(id='DataGrid').findAll('tr')[1:]
         for row in rows:
@@ -84,8 +85,7 @@ class DCLegislationScraper(LegislationScraper):
             bill_id = cells[0].contents[0]
             bill_title = cells[1].contents[0]
             bill_title = bill_title.replace(u'\u2019', "'")
-            bill_title = bill_title.replace('&quot;', '"')
-            bill_title = bill_title.replace('&amp;', '&')
+            bill_title = bill_title.replace(u'\u00a0', ' ')
             bill_title = re.sub(r'^"(.*)"\.?\s*$', r'\1', bill_title)
             bill_title = re.sub(r'\s+', ' ', bill_title)
             self.add_bill(chamber, session, bill_id, bill_title)
